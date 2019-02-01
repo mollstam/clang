@@ -79,9 +79,10 @@ namespace format {
   TYPE(ObjCStringLiteral)                                                      \
   TYPE(OverloadedOperator)                                                     \
   TYPE(OverloadedOperatorLParen)                                               \
-  TYPE(PointerOrReference)                                                     \
+  TYPE(Pointer)                                                                \
   TYPE(PureVirtualSpecifier)                                                   \
   TYPE(RangeBasedForLoopColon)                                                 \
+  TYPE(Reference)                                                              \
   TYPE(RegexLiteral)                                                           \
   TYPE(SelectorName)                                                           \
   TYPE(StartOfName)                                                            \

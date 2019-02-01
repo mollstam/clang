@@ -255,7 +255,7 @@ private:
         }
       }
 
-      if (CurrentToken->Previous->is(TT_PointerOrReference) &&
+      if (CurrentToken->Previous->isOneOf(TT_Pointer, TT_Reference) &&
           CurrentToken->Previous->Previous->isOneOf(tok::l_paren,
                                                     tok::coloncolon))
         ProbablyFunctionType = true;
@@ -278,9 +278,11 @@ private:
           // function bodies, e.g.:
           //   auto my_lambda = MARCO((Type *type, int i) { .. body .. });
           for (FormatToken *Tok = Left; Tok != CurrentToken; Tok = Tok->Next) {
-            if (Tok->is(TT_BinaryOperator) &&
-                Tok->isOneOf(tok::star, tok::amp, tok::ampamp))
-              Tok->Type = TT_PointerOrReference;
+            if (Tok->is(TT_BinaryOperator) && Tok->is(tok::star))
+              Tok->Type = TT_Pointer;
+            else if (Tok->is(TT_BinaryOperator) &&
+                     Tok->isOneOf(tok::amp, tok::ampamp))
+              Tok->Type = TT_Reference;
           }
         }
 
@@ -517,7 +519,7 @@ private:
           // determineStarAmpUsage() thinks that '*' '[' is allocating an
           // array of pointers, but if '[' starts a selector then '*' is a
           // binary operator.
-          if (Parent && Parent->is(TT_PointerOrReference))
+          if (Parent && Parent->isOneOf(TT_Pointer, TT_Reference))
             Parent->Type = TT_BinaryOperator;
         }
         Left->MatchingParen = CurrentToken;
@@ -868,8 +870,10 @@ private:
         break;
       while (CurrentToken &&
              !CurrentToken->isOneOf(tok::l_paren, tok::semi, tok::r_paren)) {
-        if (CurrentToken->isOneOf(tok::star, tok::amp))
-          CurrentToken->Type = TT_PointerOrReference;
+        if (CurrentToken->is(tok::star))
+          CurrentToken->Type = TT_Pointer;
+        else if (CurrentToken->is(tok::amp))
+          CurrentToken->Type = TT_Reference;
         consumeToken();
         if (CurrentToken &&
             CurrentToken->Previous->isOneOf(TT_BinaryOperator, TT_UnaryOperator,
@@ -1229,8 +1233,12 @@ private:
             break;
           if (Previous->isOneOf(TT_BinaryOperator, TT_UnaryOperator) &&
               Previous->isOneOf(tok::star, tok::amp, tok::ampamp) &&
-              Previous->Previous && Previous->Previous->isNot(tok::equal))
-            Previous->Type = TT_PointerOrReference;
+              Previous->Previous && Previous->Previous->isNot(tok::equal)) {
+            if (Previous->is(tok::star))
+              Previous->Type = TT_Pointer;
+            else if (Previous->isOneOf(tok::amp, tok::ampamp))
+              Previous->Type = TT_Reference;
+          }
         }
       }
     } else if (Current.is(tok::lessless) &&
@@ -1251,8 +1259,12 @@ private:
     } else if (Current.isOneOf(tok::r_paren, tok::greater, tok::comma)) {
       for (FormatToken *Previous = Current.Previous;
            Previous && Previous->isOneOf(tok::star, tok::amp);
-           Previous = Previous->Previous)
-        Previous->Type = TT_PointerOrReference;
+           Previous = Previous->Previous) {
+        if (Previous->is(tok::star))
+          Previous->Type = TT_Pointer;
+        else if (Previous->is(tok::amp))
+          Previous->Type = TT_Reference;
+      }
       if (Line.MustBeDeclaration && !Contexts.front().InCtorInitializer)
         Contexts.back().IsExpression = false;
     } else if (Current.is(tok::kw_new)) {
@@ -1470,7 +1482,7 @@ private:
 
     return (!IsPPKeyword &&
             PreviousNotConst->isOneOf(tok::identifier, tok::kw_auto)) ||
-           PreviousNotConst->is(TT_PointerOrReference) ||
+           PreviousNotConst->isOneOf(TT_Pointer, TT_Reference) ||
            PreviousNotConst->isSimpleTypeSpecifier();
   }
 
@@ -1526,7 +1538,7 @@ private:
     // Heuristically try to determine whether the parentheses contain a type.
     bool ParensAreType =
         !Tok.Previous ||
-        Tok.Previous->isOneOf(TT_PointerOrReference, TT_TemplateCloser) ||
+        Tok.Previous->isOneOf(TT_Pointer, TT_Reference, TT_TemplateCloser) ||
         Tok.Previous->isSimpleTypeSpecifier();
     bool ParensCouldEndDecl =
         Tok.Next->isOneOf(tok::equal, tok::semi, tok::l_brace, tok::greater);
@@ -1584,11 +1596,19 @@ private:
     const FormatToken *NextToken = Tok.getNextNonComment();
     if (!NextToken ||
         NextToken->isOneOf(tok::arrow, tok::equal, tok::kw_const) ||
-        (NextToken->is(tok::l_brace) && !NextToken->getNextNonComment()))
-      return TT_PointerOrReference;
+        (NextToken->is(tok::l_brace) && !NextToken->getNextNonComment())) {
+      if (Tok.is(tok::star))
+        return TT_Pointer;
+      else if (Tok.isOneOf(tok::amp, tok::ampamp))
+        return TT_Reference;
+    }
 
-    if (PrevToken->is(tok::coloncolon))
-      return TT_PointerOrReference;
+    if (PrevToken->is(tok::coloncolon)) {
+      if (Tok.is(tok::star))
+        return TT_Pointer;
+      else if (Tok.isOneOf(tok::amp, tok::ampamp))
+        return TT_Reference;
+    }
 
     if (PrevToken->isOneOf(tok::l_paren, tok::l_square, tok::l_brace,
                            tok::comma, tok::semi, tok::kw_return, tok::colon,
@@ -1598,19 +1618,35 @@ private:
                            TT_UnaryOperator, TT_CastRParen))
       return TT_UnaryOperator;
 
-    if (NextToken->is(tok::l_square) && NextToken->isNot(TT_LambdaLSquare))
-      return TT_PointerOrReference;
-    if (NextToken->is(tok::kw_operator) && !IsExpression)
-      return TT_PointerOrReference;
-    if (NextToken->isOneOf(tok::comma, tok::semi))
-      return TT_PointerOrReference;
+    if (NextToken->is(tok::l_square) && NextToken->isNot(TT_LambdaLSquare)) {
+      if (Tok.is(tok::star))
+        return TT_Pointer;
+      else if (Tok.isOneOf(tok::amp, tok::ampamp))
+        return TT_Reference;
+    }
+    if (NextToken->is(tok::kw_operator) && !IsExpression) {
+      if (Tok.is(tok::star))
+        return TT_Pointer;
+      else if (Tok.isOneOf(tok::amp, tok::ampamp))
+        return TT_Reference;
+    }
+    if (NextToken->isOneOf(tok::comma, tok::semi)) {
+      if (Tok.is(tok::star))
+        return TT_Pointer;
+      else if (Tok.isOneOf(tok::amp, tok::ampamp))
+        return TT_Reference;
+    }
 
     if (PrevToken->is(tok::r_paren) && PrevToken->MatchingParen) {
       FormatToken *TokenBeforeMatchingParen =
           PrevToken->MatchingParen->getPreviousNonComment();
       if (TokenBeforeMatchingParen &&
-          TokenBeforeMatchingParen->isOneOf(tok::kw_typeof, tok::kw_decltype))
-        return TT_PointerOrReference;
+          TokenBeforeMatchingParen->isOneOf(tok::kw_typeof, tok::kw_decltype)) {
+        if (Tok.is(tok::star))
+          return TT_Pointer;
+        else if (Tok.isOneOf(tok::amp, tok::ampamp))
+          return TT_Reference;
+      }
     }
 
     if (PrevToken->Tok.isLiteral() ||
@@ -1640,7 +1676,12 @@ private:
     if (IsExpression && !Contexts.back().CaretFound)
       return TT_BinaryOperator;
 
-    return TT_PointerOrReference;
+    if (Tok.is(tok::star))
+      return TT_Pointer;
+    else if (Tok.isOneOf(tok::amp, tok::ampamp))
+      return TT_Reference;
+
+    return TT_Unknown;
   }
 
   TokenType determinePlusMinusCaretUsage(const FormatToken &Tok) {
@@ -2033,7 +2074,7 @@ static bool isFunctionDeclarationName(const FormatToken &Current,
     return true; // Empty parentheses.
   // If there is an &/&& after the r_paren, this is likely a function.
   if (Next->MatchingParen->Next &&
-      Next->MatchingParen->Next->is(TT_PointerOrReference))
+      Next->MatchingParen->Next->isOneOf(TT_Pointer, TT_Reference))
     return true;
   for (const FormatToken *Tok = Next->Next; Tok && Tok != Next->MatchingParen;
        Tok = Tok->Next) {
@@ -2042,7 +2083,7 @@ static bool isFunctionDeclarationName(const FormatToken &Current,
       continue;
     }
     if (Tok->is(tok::kw_const) || Tok->isSimpleTypeSpecifier() ||
-        Tok->isOneOf(TT_PointerOrReference, TT_StartOfName, tok::ellipsis))
+        Tok->isOneOf(TT_Pointer, TT_Reference, TT_StartOfName, tok::ellipsis))
       return true;
     if (Tok->isOneOf(tok::l_brace, tok::string_literal, TT_ObjCMethodExpr) ||
         Tok->Tok.isLiteral())
@@ -2259,7 +2300,7 @@ unsigned TokenAnnotator::splitPenalty(const AnnotatedLine &Line,
       return Style.PenaltyReturnTypeOnItsOwnLine;
     return 200;
   }
-  if (Right.is(TT_PointerOrReference))
+  if (Right.isOneOf(TT_Pointer, TT_Reference))
     return 190;
   if (Right.is(TT_LambdaArrow))
     return 110;
@@ -2453,7 +2494,7 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
                                     Left.Previous->is(tok::kw_case));
   if (Left.is(tok::l_square) && Right.is(tok::amp))
     return false;
-  if (Right.is(TT_PointerOrReference)) {
+  if (Right.isOneOf(TT_Pointer, TT_Reference)) {
     if (Left.is(tok::r_paren) && Line.MightBeFunctionDecl) {
       if (!Left.MatchingParen)
         return true;
@@ -2464,25 +2505,42 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
         return true;
     }
     return (Left.Tok.isLiteral() ||
-            (!Left.isOneOf(TT_PointerOrReference, tok::l_paren) &&
-             (Style.PointerAlignment != FormatStyle::PAS_Left ||
+            (!Left.isOneOf(TT_Pointer, TT_Reference, tok::l_paren) &&
+             (((Right.is(TT_Pointer) &&
+                Style.PointerAlignment != FormatStyle::PAS_Left) ||
+               (Right.is(TT_Reference) &&
+                Style.ReferenceAlignment != FormatStyle::PAS_Left)) ||
               (Line.IsMultiVariableDeclStmt &&
                (Left.NestingLevel == 0 ||
                 (Left.NestingLevel == 1 && Line.First->is(tok::kw_for)))))));
   }
   if (Right.is(TT_FunctionTypeLParen) && Left.isNot(tok::l_paren) &&
-      (!Left.is(TT_PointerOrReference) ||
+      (!Left.is(TT_Pointer) ||
        (Style.PointerAlignment != FormatStyle::PAS_Right &&
+        !Line.IsMultiVariableDeclStmt)) &&
+      (!Left.is(TT_Reference) ||
+       (Style.ReferenceAlignment != FormatStyle::PAS_Right &&
         !Line.IsMultiVariableDeclStmt)))
     return true;
-  if (Left.is(TT_PointerOrReference))
+  if (Left.is(TT_Pointer))
     return Right.Tok.isLiteral() || Right.is(TT_BlockComment) ||
            (Right.isOneOf(Keywords.kw_override, Keywords.kw_final) &&
             !Right.is(TT_StartOfName)) ||
            (Right.is(tok::l_brace) && Right.BlockKind == BK_Block) ||
-           (!Right.isOneOf(TT_PointerOrReference, TT_ArraySubscriptLSquare,
+           (!Right.isOneOf(TT_Pointer, TT_ArraySubscriptLSquare,
                            tok::l_paren) &&
             (Style.PointerAlignment != FormatStyle::PAS_Right &&
+             !Line.IsMultiVariableDeclStmt) &&
+            Left.Previous &&
+            !Left.Previous->isOneOf(tok::l_paren, tok::coloncolon));
+  if (Left.is(TT_Reference))
+    return Right.Tok.isLiteral() || Right.is(TT_BlockComment) ||
+           (Right.isOneOf(Keywords.kw_override, Keywords.kw_final) &&
+            !Right.is(TT_StartOfName)) ||
+           (Right.is(tok::l_brace) && Right.BlockKind == BK_Block) ||
+           (!Right.isOneOf(TT_Reference, TT_ArraySubscriptLSquare,
+                           tok::l_paren) &&
+            (Style.ReferenceAlignment != FormatStyle::PAS_Right &&
              !Line.IsMultiVariableDeclStmt) &&
             Left.Previous &&
             !Left.Previous->isOneOf(tok::l_paren, tok::coloncolon));
@@ -2807,11 +2865,11 @@ bool TokenAnnotator::spaceRequiredBefore(const AnnotatedLine &Line,
   // Space before TT_StructuredBindingLSquare.
   if (Right.is(TT_StructuredBindingLSquare))
     return !Left.isOneOf(tok::amp, tok::ampamp) ||
-           Style.PointerAlignment != FormatStyle::PAS_Right;
+           Style.ReferenceAlignment != FormatStyle::PAS_Right;
   // Space before & or && following a TT_StructuredBindingLSquare.
   if (Right.Next && Right.Next->is(TT_StructuredBindingLSquare) &&
       Right.isOneOf(tok::amp, tok::ampamp))
-    return Style.PointerAlignment != FormatStyle::PAS_Left;
+    return Style.ReferenceAlignment != FormatStyle::PAS_Left;
   if ((Right.is(TT_BinaryOperator) && !Left.is(tok::l_paren)) ||
       (Left.isOneOf(TT_BinaryOperator, TT_ConditionalExpr) &&
        !Right.is(tok::r_paren)))
@@ -3173,14 +3231,18 @@ bool TokenAnnotator::canBreakBefore(const AnnotatedLine &Line,
     return false;
   if (Left.isOneOf(TT_JavaAnnotation, TT_LeadingJavaAnnotation))
     return !Right.is(tok::l_paren);
-  if (Right.is(TT_PointerOrReference))
+  if (Right.is(TT_Pointer))
     return Line.IsMultiVariableDeclStmt ||
            (Style.PointerAlignment == FormatStyle::PAS_Right &&
+            (!Right.Next || Right.Next->isNot(TT_FunctionDeclarationName)));
+  if (Right.is(TT_Reference))
+    return Line.IsMultiVariableDeclStmt ||
+           (Style.ReferenceAlignment == FormatStyle::PAS_Right &&
             (!Right.Next || Right.Next->isNot(TT_FunctionDeclarationName)));
   if (Right.isOneOf(TT_StartOfName, TT_FunctionDeclarationName) ||
       Right.is(tok::kw_operator))
     return true;
-  if (Left.is(TT_PointerOrReference))
+  if (Left.isOneOf(TT_Pointer, TT_Reference))
     return false;
   if (Right.isTrailingComment())
     // We rely on MustBreakBefore being set correctly here as we should not

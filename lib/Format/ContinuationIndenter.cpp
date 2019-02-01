@@ -1018,7 +1018,7 @@ unsigned ContinuationIndenter::getNewLineColumn(const LineState &State) {
       NextNonComment->Next && NextNonComment->Next->is(TT_ObjCMethodExpr))
     return State.Stack.back().Indent;
 
-  if (NextNonComment->isOneOf(TT_StartOfName, TT_PointerOrReference) ||
+  if (NextNonComment->isOneOf(TT_StartOfName, TT_Pointer, TT_Reference) ||
       Previous.isOneOf(tok::coloncolon, tok::equal, TT_JsTypeColon))
     return ContinuationIndent;
   if (PreviousNonComment && PreviousNonComment->is(tok::colon) &&
@@ -1081,7 +1081,7 @@ unsigned ContinuationIndenter::moveStateToNextToken(LineState &State,
       State.Stack.back().QuestionColumn = State.Column;
   }
   if (!Current.opensScope() && !Current.closesScope() &&
-      !Current.is(TT_PointerOrReference))
+      !Current.isOneOf(TT_Pointer, TT_Reference))
     State.LowestLevelOnLine =
         std::min(State.LowestLevelOnLine, Current.NestingLevel);
   if (Current.isMemberAccess())

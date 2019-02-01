@@ -1414,8 +1414,11 @@ struct FormatStyle {
     PAS_Middle
   };
 
-  /// Pointer and reference alignment style.
+  /// Pointer alignment style.
   PointerAlignmentStyle PointerAlignment;
+
+  /// Reference alignment style.
+  PointerAlignmentStyle ReferenceAlignment;
 
   /// See documentation of ``RawStringFormats``.
   struct RawStringFormat {
@@ -1787,6 +1790,7 @@ struct FormatStyle {
            PenaltyBreakTemplateDeclaration ==
                R.PenaltyBreakTemplateDeclaration &&
            PointerAlignment == R.PointerAlignment &&
+           ReferenceAlignment == R.ReferenceAlignment &&
            RawStringFormats == R.RawStringFormats &&
            SpaceAfterCStyleCast == R.SpaceAfterCStyleCast &&
            SpaceAfterTemplateKeyword == R.SpaceAfterTemplateKeyword &&

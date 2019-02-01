@@ -440,6 +440,7 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("PenaltyReturnTypeOnItsOwnLine",
                    Style.PenaltyReturnTypeOnItsOwnLine);
     IO.mapOptional("PointerAlignment", Style.PointerAlignment);
+    IO.mapOptional("ReferenceAlignment", Style.ReferenceAlignment);
     IO.mapOptional("RawStringFormats", Style.RawStringFormats);
     IO.mapOptional("ReflowComments", Style.ReflowComments);
     IO.mapOptional("SortIncludes", Style.SortIncludes);
@@ -684,6 +685,7 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.ObjCSpaceAfterProperty = false;
   LLVMStyle.ObjCSpaceBeforeProtocolList = true;
   LLVMStyle.PointerAlignment = FormatStyle::PAS_Right;
+  LLVMStyle.ReferenceAlignment = FormatStyle::PAS_Right;
   LLVMStyle.SpacesBeforeTrailingComments = 1;
   LLVMStyle.Standard = FormatStyle::LS_Cpp11;
   LLVMStyle.UseTab = FormatStyle::UT_Never;
@@ -749,6 +751,7 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
   GoogleStyle.ObjCSpaceAfterProperty = false;
   GoogleStyle.ObjCSpaceBeforeProtocolList = true;
   GoogleStyle.PointerAlignment = FormatStyle::PAS_Left;
+  GoogleStyle.ReferenceAlignment = FormatStyle::PAS_Left;
   GoogleStyle.RawStringFormats = {
       {
           FormatStyle::LK_Cpp,
@@ -899,6 +902,7 @@ FormatStyle getMozillaStyle() {
   MozillaStyle.ObjCSpaceBeforeProtocolList = false;
   MozillaStyle.PenaltyReturnTypeOnItsOwnLine = 200;
   MozillaStyle.PointerAlignment = FormatStyle::PAS_Left;
+  MozillaStyle.ReferenceAlignment = FormatStyle::PAS_Left;
   MozillaStyle.SpaceAfterTemplateKeyword = false;
   return MozillaStyle;
 }
@@ -920,6 +924,7 @@ FormatStyle getWebKitStyle() {
   Style.ObjCBlockIndentWidth = 4;
   Style.ObjCSpaceAfterProperty = true;
   Style.PointerAlignment = FormatStyle::PAS_Left;
+  Style.ReferenceAlignment = FormatStyle::PAS_Left;
   Style.SpaceBeforeCpp11BracedList = true;
   return Style;
 }
@@ -1225,7 +1230,7 @@ private:
     for (const AnnotatedLine *Line : Lines) {
       AlignmentDiff += countVariableAlignments(Line->Children);
       for (FormatToken *Tok = Line->First; Tok && Tok->Next; Tok = Tok->Next) {
-        if (!Tok->is(TT_PointerOrReference))
+        if (!Tok->isOneOf(TT_Pointer, TT_Reference))
           continue;
         bool SpaceBefore =
             Tok->WhitespaceRange.getBegin() != Tok->WhitespaceRange.getEnd();
@@ -1258,9 +1263,12 @@ private:
       }
     }
     if (Style.DerivePointerAlignment)
+    {
       Style.PointerAlignment = countVariableAlignments(AnnotatedLines) <= 0
                                    ? FormatStyle::PAS_Left
                                    : FormatStyle::PAS_Right;
+      Style.ReferenceAlignment = Style.PointerAlignment;
+    }
     if (Style.Standard == FormatStyle::LS_Auto)
       Style.Standard = hasCpp03IncompatibleFormat(AnnotatedLines)
                            ? FormatStyle::LS_Cpp11
